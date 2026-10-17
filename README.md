@@ -26,11 +26,7 @@ USB-based offensive security dropper for Windows targets. Deploys via AutoRun, p
 - Sliver HTTP Listener (:8080) — agent beacons + command polling
 - SQLite backend — persistent agent tracking
 
-**Endpoints:**
-- `GET /health` — server health
-- `POST /register` — agent registration + beacon
-- `GET /command?host=HOSTNAME` — command fetch
-- Encryption: XOR + Base64 (AES-256-GCM ready)
+(See `c2-protocol.md` for HTTP endpoint specification.)
 
 ---
 
@@ -393,16 +389,17 @@ Use only on authorized targets in controlled environments.
 
 ## Success Checklist
 
-- [ ] C2 server reachable (ping c2.ginga.dev:8080)
+- [ ] C2 server reachable (curl -I http://c2.ginga.dev:8080/health)
+- [ ] Sliver listener running (sliver > listeners)
 - [ ] USB formatted + mounted
 - [ ] Dropper builds successfully (`./build-and-deploy.sh`)
 - [ ] autorun.inf on USB
 - [ ] payload.exe on USB (~450 KB)
 - [ ] Insert USB on target
-- [ ] Beacon appears in C2 (`/tmp/sliver-beacons/`)
-- [ ] Agent polls C2 (`watch /tmp/sliver-beacons/`)
+- [ ] New session appears (sliver > sessions)
+- [ ] Agent metadata visible (sliver > info)
 - [ ] Commands execute (shell, upload, download)
-- [ ] Persistence survives reboot
+- [ ] Persistence survives reboot (schtasks, WMI, ADS)
 
 ---
 
