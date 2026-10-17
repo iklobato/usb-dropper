@@ -16,14 +16,18 @@ diskutil list
 diskutil secureErase 0 JHFS+ USB /dev/diskX
 ```
 
-## Step 2: Start C2 Server
+## Step 2: Start C2 Server (Sliver)
 
 ```bash
-# Terminal 1: Start Sliver listener
-sliver > http -L 0.0.0.0 -p 8080
+# Terminal 1: Start Sliver daemon
+sliver-server daemon --listen 0.0.0.0:31337
 
-# OR: Start mock C2 (Python)
-python3 -m http.server 8080 --directory /tmp/c2
+# Terminal 2: Connect to Sliver console
+sliver-client console
+
+# In Sliver console, start HTTP listener
+sliver > listener --protocol http --host 0.0.0.0 --port 8080
+# [*] Started HTTP listener: http://0.0.0.0:8080
 ```
 
 Get your IP:

